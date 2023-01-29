@@ -28,10 +28,12 @@ func NewBlockGetter(option ...Option) BlockGetter {
 	for _, v := range option {
 		v(bg)
 	}
+	bg.ds = util.NewDataService(util.WithLocatorAddressOption(bg.locatorAddr))
 	return bg
 }
 
 type blockGetter struct {
+	ds          util.DataService
 	locatorAddr string
 }
 
@@ -40,7 +42,7 @@ func (b *blockGetter) GetBlock(ctx context.Context, c cid.Cid) (blocks.Block, er
 	if !c.Defined() {
 		return nil, ipld.ErrNotFound{Cid: c}
 	}
-	data, err := util.NewDataService(util.WithLocatorAddressOption(b.locatorAddr)).GetDataFromTitanByCid(ctx, c)
+	data, err := b.ds.GetDataFromTitanByCid(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -54,5 +56,5 @@ func (b *blockGetter) GetBlock(ctx context.Context, c cid.Cid) (blocks.Block, er
 
 func (b *blockGetter) GetBlocks(ctx context.Context, ks []cid.Cid) <-chan blocks.Block {
 	logger.Debug("start batch download block")
-	return util.NewDataService(util.WithLocatorAddressOption(b.locatorAddr)).GetBlockFromTitanByCids(ctx, ks)
+	return b.ds.GetBlockFromTitanByCids(ctx, ks)
 }
