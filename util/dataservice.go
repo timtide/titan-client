@@ -19,7 +19,7 @@ import (
 )
 
 // todo: there is no domain name at present. Use IP first
-const defaultLocatorAddress = "http://39.108.143.56:5000/rpc/v0"
+const defaultLocatorAddress = "http://192.168.0.132:5000/rpc/v0"
 const sdkName = "go-titan-client"
 
 var logger = logging.Logger("titan-client/util")

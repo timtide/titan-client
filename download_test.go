@@ -37,7 +37,7 @@ func TestTitanDownloader_Download(t *testing.T) {
 		return
 	}
 	ctx := context.Background()
-	c, err := cid.Decode("QmXRrLjxgHd2Ls8jFZby2fx2wQuuqBkamQE8ibY6TnREA4")
+	c, err := cid.Decode("QmSnhddPRncbtbohHAvemPjHiyMd9HUoH8YdyPK4qtB8M8")
 	if err != nil {
 		t.Error(err)
 		return
