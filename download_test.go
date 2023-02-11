@@ -3,7 +3,6 @@ package titan_client
 import (
 	"compress/gzip"
 	"context"
-	"fmt"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"io"
@@ -12,51 +11,44 @@ import (
 )
 
 func TestNewDownloader(t *testing.T) {
-	//downloader := NewDownloader(WithCustomGatewayAddressOption("http://127.0.0.1:5001"), WithLocatorAddressOption(""))
-	// t.Log(downloader)
-	f, err := os.Create("./data.txt")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer f.Close()
-
-	for i := 0; i < 5100; i++ {
-		_, err = f.WriteString(fmt.Sprintf("%d %s\n", i, "QmTp2hEo8eXRp6wg7jXv1BLCMh5a4F3B7buAUZNZUu772j"))
-		if err != nil {
-			t.Error(err.Error())
-			return
-		}
-	}
+	downloader := NewDownloader(WithCustomGatewayAddressOption("http://127.0.0.1:5001"), WithLocatorAddressOption(""))
+	t.Log(downloader)
 }
 
 func TestTitanDownloader_Download(t *testing.T) {
+	carfiles := []string{
+		"QmT2dwc94QJypTuACcdBGLdzJGLz7m1LCvPvH43HrZdTWn",
+		"QmXmPUA8CGNDebNZZfhg6MYhfq6hRvRLuMf7sRWDsBUnU9",
+		"QmXRrLjxgHd2Ls8jFZby2fx2wQuuqBkamQE8ibY6TnREA4",
+		//"QmQztiWG1rvim9d8HgcK34UEJbTkih8wvfxaycpW2Zwccc",
+		"QmUbaDBz6YKn3dVzoKrLDyupMmyWk5am2QSdgfKsU1RN3N",
+	}
 	err := logging.SetLogLevel("titan-client/util", "DEBUG")
 	if err != nil {
 		t.Error(err.Error())
 		return
 	}
 	ctx := context.Background()
-	c, err := cid.Decode("QmSnhddPRncbtbohHAvemPjHiyMd9HUoH8YdyPK4qtB8M8")
-	if err != nil {
-		t.Error(err)
-		return
+	downloader := NewDownloader(WithCustomGatewayAddressOption("http://127.0.0.1:5001"), WithLocatorAddressOption("http://39.108.143.56:5000"))
+	for {
+		for _, v := range carfiles {
+			t.Logf("================>> start download carfile[%s] <<================", v)
+			c, err := cid.Decode(v)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			err = downloader.Download(ctx, c, false, gzip.NoCompression, "./titan03.txt")
+			if err != nil {
+				t.Error(err.Error())
+				return
+			}
+			t.Logf("================>> carfile[%s] download success <<================", v)
+		}
 	}
-	downloader := NewDownloader(WithCustomGatewayAddressOption("http://127.0.0.1:5001"), WithLocatorAddressOption("http://192.168.0.132:5000"))
-	err = downloader.Download(ctx, c, false, gzip.NoCompression, "./titan.txt")
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-	t.Log("download success")
 }
 
 func TestTitanDownloader_GetReader(t *testing.T) {
-	/*	err := os.Remove("./download.txt")
-		if err != nil {
-			t.Error(err)
-			return
-		}*/
 	c, err := cid.Decode("QmYLniRF9EL5CCV5hY5z9KEYqnRdhvjpCGZgvNxL8JCc2E")
 	if err != nil {
 		t.Error(err)
@@ -68,7 +60,7 @@ func TestTitanDownloader_GetReader(t *testing.T) {
 		return
 	}
 	defer reader.Close()
-	f, err := os.Create("./download.txt")
+	f, err := os.Create("./titan02.txt")
 	if err != nil {
 		t.Error(err)
 		return
@@ -78,17 +70,5 @@ func TestTitanDownloader_GetReader(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-
-	/*ow := util.Writer{
-		Archive:     false,
-		Compression: gzip.NoCompression,
-	}
-
-	err = ow.Write(reader, "./download.txt")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	*/
 	t.Log("download success")
 }

@@ -24,32 +24,32 @@ const sdkName = "go-titan-client"
 
 var logger = logging.Logger("titan-client/util")
 
-type DataOption func(*dataService)
+type FetcherOption func(*fetcher)
 
-func WithLocatorAddressOption(locatorUrl string) DataOption {
-	return func(dg *dataService) {
+func WithLocatorAddressOption(locatorUrl string) FetcherOption {
+	return func(dg *fetcher) {
 		dg.locatorAddr = locatorUrl
 	}
 }
 
-// DataService from titan or common gateway or local gateway to get data
-type DataService interface {
-	GetDataFromTitanByCid(ctx context.Context, c cid.Cid) ([]byte, error)
-	GetDataFromTitanOrGatewayByCid(ctx context.Context, customGatewayURL string, c cid.Cid) ([]byte, error)
-	GetBlockFromTitanOrGatewayByCids(ctx context.Context, customGatewayURL string, ks []cid.Cid) <-chan blocks.Block
-	GetBlockFromTitanByCids(ctx context.Context, ks []cid.Cid) <-chan blocks.Block
+// Fetcher from titan or common gateway or local gateway to get data
+type Fetcher interface {
+	GetBlockData(ctx context.Context, c cid.Cid) ([]byte, error)
+	GetBlockDataFromTitanOrGateway(ctx context.Context, customGatewayURL string, c cid.Cid) ([]byte, error)
+	GetBlocksFromTitanOrGateway(ctx context.Context, customGatewayURL string, ks []cid.Cid) <-chan blocks.Block
+	GetBlocksFromTitan(ctx context.Context, ks []cid.Cid) <-chan blocks.Block
 }
 
-type dataService struct {
+type fetcher struct {
 	// store edge node information of all cid
 	pool        []*api.DownloadInfoResult
 	locatorAddr string
-	// carfile root cid load failure record
+	// for carfile, root cid load failure record
 	err error
 }
 
-func NewDataService(option ...DataOption) DataService {
-	dg := &dataService{}
+func NewFetcher(option ...FetcherOption) Fetcher {
+	dg := &fetcher{}
 	for _, v := range option {
 		v(dg)
 	}
@@ -62,7 +62,7 @@ func NewDataService(option ...DataOption) DataService {
 	return dg
 }
 
-func (d *dataService) getDownloadInfosByRootCid(ctx context.Context, c cid.Cid) error {
+func (d *fetcher) getDownloadInfosByRootCid(ctx context.Context, c cid.Cid) error {
 	locator, closer, err := client.NewLocator(ctx, d.locatorAddr, nil)
 	if err != nil {
 		logger.Error("create schedule fail : ", err.Error())
@@ -91,7 +91,7 @@ func (d *dataService) getDownloadInfosByRootCid(ctx context.Context, c cid.Cid) 
 	return nil
 }
 
-func (d *dataService) GetDataFromTitanByCid(ctx context.Context, c cid.Cid) ([]byte, error) {
+func (d *fetcher) GetBlockData(ctx context.Context, c cid.Cid) ([]byte, error) {
 	if d.err != nil {
 		return nil, d.err
 	}
@@ -102,7 +102,10 @@ func (d *dataService) GetDataFromTitanByCid(ctx context.Context, c cid.Cid) ([]b
 			return nil, err
 		}
 	}
-	df := d.allotDownloadInfo()
+	df, err := d.allotDownloadInfo()
+	if err != nil {
+		return nil, err
+	}
 	data, err := d.getDataFromEdgeNode(df, c)
 	if err != nil {
 		logger.Error("fail get data from edge node : ", err.Error())
@@ -116,17 +119,31 @@ func (d *dataService) GetDataFromTitanByCid(ctx context.Context, c cid.Cid) ([]b
 	return data, nil
 }
 
-func (d *dataService) allotDownloadInfo() *api.DownloadInfoResult {
+func (d *fetcher) allotDownloadInfo() (*api.DownloadInfoResult, error) {
 	if len(d.pool) == 1 {
-		return d.pool[0]
+		return d.pool[0], nil
+	}
+	weightAllot := false
+	for _, v := range d.pool {
+		if v.Weight != 0 {
+			weightAllot = true
+			break
+		}
+	}
+	if weightAllot {
+		cs, err := NewChooser(d.pool...)
+		if err != nil {
+			return nil, err
+		}
+		return cs.Pick(), nil
 	}
 	rand.Seed(time.Now().UnixNano())
 	index := rand.Intn(len(d.pool))
-	return d.pool[index]
+	return d.pool[index], nil
 }
 
-func (d *dataService) GetDataFromTitanOrGatewayByCid(ctx context.Context, customGatewayAddr string, c cid.Cid) ([]byte, error) {
-	data, err := d.GetDataFromTitanByCid(ctx, c)
+func (d *fetcher) GetBlockDataFromTitanOrGateway(ctx context.Context, customGatewayAddr string, c cid.Cid) ([]byte, error) {
+	data, err := d.GetBlockData(ctx, c)
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
 		return nil, err
 	}
@@ -140,7 +157,7 @@ func (d *dataService) GetDataFromTitanOrGatewayByCid(ctx context.Context, custom
 	return data, nil
 }
 
-func (d *dataService) GetBlockFromTitanOrGatewayByCids(ctx context.Context, customGatewayAddr string, ks []cid.Cid) <-chan blocks.Block {
+func (d *fetcher) GetBlocksFromTitanOrGateway(ctx context.Context, customGatewayAddr string, ks []cid.Cid) <-chan blocks.Block {
 	ch := make(chan blocks.Block)
 	go func() {
 		defer close(ch)
@@ -152,7 +169,7 @@ func (d *dataService) GetBlockFromTitanOrGatewayByCids(ctx context.Context, cust
 			wg.Add(1)
 			go func(cc context.Context, c cid.Cid) {
 				defer wg.Done()
-				data, err := d.GetDataFromTitanByCid(cc, c)
+				data, err := d.GetBlockData(cc, c)
 				if data == nil {
 					data, err = d.getDataFromCommonGateway(customGatewayAddr, c)
 					if err != nil {
@@ -179,7 +196,7 @@ func (d *dataService) GetBlockFromTitanOrGatewayByCids(ctx context.Context, cust
 	return ch
 }
 
-func (d *dataService) GetBlockFromTitanByCids(ctx context.Context, ks []cid.Cid) <-chan blocks.Block {
+func (d *fetcher) GetBlocksFromTitan(ctx context.Context, ks []cid.Cid) <-chan blocks.Block {
 	ch := make(chan blocks.Block)
 	go func() {
 		defer close(ch)
@@ -191,7 +208,7 @@ func (d *dataService) GetBlockFromTitanByCids(ctx context.Context, ks []cid.Cid)
 			go func(cc context.Context, c cid.Cid) {
 				defer wg.Done()
 
-				data, err := d.GetDataFromTitanByCid(cc, c)
+				data, err := d.GetBlockData(cc, c)
 				if err != nil {
 					logger.Error("fail get data from edge node : ", err.Error())
 					return
@@ -216,7 +233,7 @@ func (d *dataService) GetBlockFromTitanByCids(ctx context.Context, ks []cid.Cid)
 }
 
 // getDataFromEdgeNode connect Titan edge node by http get method
-func (d *dataService) getDataFromEdgeNode(di *api.DownloadInfoResult, cid cid.Cid) ([]byte, error) {
+func (d *fetcher) getDataFromEdgeNode(di *api.DownloadInfoResult, cid cid.Cid) ([]byte, error) {
 	if di.URL == "" {
 		return nil, fmt.Errorf("not found target host")
 	}
@@ -233,7 +250,7 @@ func (d *dataService) getDataFromEdgeNode(di *api.DownloadInfoResult, cid cid.Ci
 	return http2.Get(url, sdkName)
 }
 
-func (d *dataService) getDataFromCommonGateway(customGatewayAddr string, c cid.Cid) ([]byte, error) {
+func (d *fetcher) getDataFromCommonGateway(customGatewayAddr string, c cid.Cid) ([]byte, error) {
 	if customGatewayAddr == "" {
 		return nil, fmt.Errorf("not found target host")
 	}
@@ -242,7 +259,7 @@ func (d *dataService) getDataFromCommonGateway(customGatewayAddr string, c cid.C
 	return http2.PostFromGateway(url)
 }
 
-func (d *dataService) callback(c cid.Cid, sn int64, downloadSuccess bool) {
+func (d *fetcher) callback(c cid.Cid, sn int64, downloadSuccess bool) {
 	// give up the CPU, download first
 	runtime.Gosched()
 

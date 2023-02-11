@@ -62,6 +62,5 @@ func (r *rsaSign) generateRSAKey(bits int) error {
 		return err
 	}
 	r.privateKey = privateKey
-	// publicKey := privateKey.PublicKey
 	return nil
 }
